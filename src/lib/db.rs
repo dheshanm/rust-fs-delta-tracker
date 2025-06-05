@@ -1,8 +1,6 @@
 // Execute a SQL template file with optional parameters for substitution
 // Replace instances of :param with the corresponding value from params
-#[tracing::instrument(
-    skip(client, sql_file, params)
-)]
+#[tracing::instrument(skip(client, sql_file, params))]
 pub async fn execute_sql_template(
     client: &tokio_postgres::Client,
     sql_file: std::path::PathBuf,
@@ -31,9 +29,7 @@ pub async fn execute_sql_template(
 
 // Execute a SQL template file with optional parameters for substitution
 // Replace instances of :param with the corresponding value from params
-#[tracing::instrument(
-    skip(client, sql_query, params)
-)]
+#[tracing::instrument(skip(client, sql_query, params))]
 pub async fn execute_sql_template_str(
     client: &tokio_postgres::Client,
     sql_query: &str,

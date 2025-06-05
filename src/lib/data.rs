@@ -1,11 +1,8 @@
-use futures::{SinkExt};
-use tokio::io::{AsyncBufReadExt};
+use futures::SinkExt;
+use tokio::io::AsyncBufReadExt;
 
 #[tracing::instrument]
-pub async fn clear_staging(
-    client: &tokio_postgres::Client,
-    scan_id: i32,
-) -> anyhow::Result<()> {
+pub async fn clear_staging(client: &tokio_postgres::Client, scan_id: i32) -> anyhow::Result<()> {
     let query = "DELETE FROM filesystem.staging_files WHERE scan_id = $1";
     client.execute(query, &[&scan_id]).await?;
     Ok(())
@@ -21,7 +18,7 @@ pub async fn get_files_count_by_change_type(
         SELECT COUNT(*)
         FROM filesystem.file_changes
         WHERE scan_id = $1 AND change_type = $2";
-    
+
     let row = client.query_one(query, &[&scan_id, &change_type]).await?;
     let count: i64 = row.get(0);
     Ok(count)
@@ -37,7 +34,7 @@ pub async fn get_file_size_by_change_type(
         SELECT COALESCE(SUM(ABS(COALESCE(new_size_bytes, 0) - COALESCE(old_size_bytes, 0))), 0)::bigint
         FROM filesystem.file_changes
         WHERE scan_id = $1 AND change_type = $2";
-    
+
     let row = client.query_one(query, &[&scan_id, &change_type]).await?;
     let size: i64 = row.get(0);
     Ok(size)
@@ -89,21 +86,22 @@ pub async fn load_tsv_file(
             HEADER FALSE
         )";
 
-    
     let file = tokio::fs::File::open(&input_tsv_file).await?;
     let reader = tokio::io::BufReader::new(file);
     let mut lines = reader.lines();
 
     let writer = client.copy_in(query_header).await?;
     let mut writer = Box::pin(writer);
-    
+
     let mut line_count = 0;
     while let Some(line) = lines.next_line().await? {
         let line_with_newline = format!("{}\n", line);
         line_count += 1;
-        writer.send(std::io::Cursor::new(line_with_newline.into_bytes())).await?;
+        writer
+            .send(std::io::Cursor::new(line_with_newline.into_bytes()))
+            .await?;
     }
-    
+
     writer.close().await?;
 
     Ok(line_count)
@@ -117,19 +115,16 @@ pub async fn finalize_scan(
 ) -> anyhow::Result<()> {
     let completed_at = chrono::Utc::now();
 
-    let change_types = [
-        "added",
-        "modified", 
-        "deleted",
-    ];
+    let change_types = ["added", "modified", "deleted"];
 
     let mut file_counts = std::collections::HashMap::new();
-    let mut file_sizes_mb: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut file_sizes_mb: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
 
     for change_type in &change_types {
         let count = get_files_count_by_change_type(client, scan_id, change_type).await?;
         let size = get_file_size_by_change_type(client, scan_id, change_type).await?;
-        
+
         file_counts.insert(change_type.to_string(), count);
         // Convert size from bytes to megabytes
         file_sizes_mb.insert(change_type.to_string(), size as f64 / 1024.0 / 1024.0);
@@ -151,30 +146,57 @@ pub async fn finalize_scan(
 
     let metadata_json = serde_json::to_value(&metadata)
         .map_err(|e| anyhow::anyhow!("Failed to serialize metadata: {}", e))?;
-    
-    client.execute(query, &[
-        &completed_at,
-        &metadata.get("total_files_processed").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
-        &file_counts.get("added").unwrap_or(&0),
-        &file_counts.get("modified").unwrap_or(&0),
-        &file_counts.get("deleted").unwrap_or(&0),
-        &file_sizes_mb.get("added").unwrap_or(&0.0),
-        &file_sizes_mb.get("modified").unwrap_or(&0.0),
-        &file_sizes_mb.get("deleted").unwrap_or(&0.0),
-        &metadata_json,
-        &scan_id
-    ]).await?;
+
+    client
+        .execute(
+            query,
+            &[
+                &completed_at,
+                &metadata
+                    .get("total_files_processed")
+                    .unwrap_or(&"0".to_string())
+                    .parse::<i64>()
+                    .unwrap_or(0),
+                &file_counts.get("added").unwrap_or(&0),
+                &file_counts.get("modified").unwrap_or(&0),
+                &file_counts.get("deleted").unwrap_or(&0),
+                &file_sizes_mb.get("added").unwrap_or(&0.0),
+                &file_sizes_mb.get("modified").unwrap_or(&0.0),
+                &file_sizes_mb.get("deleted").unwrap_or(&0.0),
+                &metadata_json,
+                &scan_id,
+            ],
+        )
+        .await?;
 
     metadata.insert("scan_id".to_string(), scan_id.to_string());
     metadata.insert("completed_at".to_string(), completed_at.to_rfc3339());
-    metadata.insert("added_files_count".to_string(), file_counts.get("added").unwrap_or(&0).to_string());
-    metadata.insert("modified_files_count".to_string(), file_counts.get("modified").unwrap_or(&0).to_string());
-    metadata.insert("removed_files_count".to_string(), file_counts.get("deleted").unwrap_or(&0).to_string());
-    metadata.insert("new_data_mb".to_string(), file_sizes_mb.get("added").unwrap_or(&0.0).to_string());
-    metadata.insert("modified_data_mb".to_string(), file_sizes_mb.get("modified").unwrap_or(&0.0).to_string());
-    metadata.insert("deleted_data_mb".to_string(), file_sizes_mb.get("deleted").unwrap_or(&0.0).to_string());
+    metadata.insert(
+        "added_files_count".to_string(),
+        file_counts.get("added").unwrap_or(&0).to_string(),
+    );
+    metadata.insert(
+        "modified_files_count".to_string(),
+        file_counts.get("modified").unwrap_or(&0).to_string(),
+    );
+    metadata.insert(
+        "removed_files_count".to_string(),
+        file_counts.get("deleted").unwrap_or(&0).to_string(),
+    );
+    metadata.insert(
+        "new_data_mb".to_string(),
+        file_sizes_mb.get("added").unwrap_or(&0.0).to_string(),
+    );
+    metadata.insert(
+        "modified_data_mb".to_string(),
+        file_sizes_mb.get("modified").unwrap_or(&0.0).to_string(),
+    );
+    metadata.insert(
+        "deleted_data_mb".to_string(),
+        file_sizes_mb.get("deleted").unwrap_or(&0.0).to_string(),
+    );
 
     tracing::info!("📊 Scan metadata:\n{:#?}", metadata);
-    
+
     Ok(())
 }

@@ -6,6 +6,7 @@ use fs_delta_tracker::logging;
 
 static PROJECT_DIR: include_dir::Dir = include_dir::include_dir!("$CARGO_MANIFEST_DIR/assets");
 
+/// Command-line tool to scan a filesystem directory and track changes in PostgreSQL.
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about)]
 struct Opt {
@@ -45,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("📁 Scanning root: {}", opt.data_root.display());
     tracing::info!(
         "🔗 Database: {}",
-        opt.database_url.split('@').last().unwrap_or("***")
+        opt.database_url.split('@').next_back().unwrap_or("***")
     );
     tracing::info!(
         "📝 Log file: {}",
@@ -95,7 +96,8 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("📄 Processing staged files...");
     let start_time = std::time::Instant::now();
-    let processing_sql = PROJECT_DIR.get_file("templates/sql/process_staging_v2.sql")
+    let processing_sql = PROJECT_DIR
+        .get_file("templates/sql/process_staging_v2.sql")
         .expect("SQL template file not found")
         .contents_utf8()
         .expect("Failed to read SQL template as UTF-8");

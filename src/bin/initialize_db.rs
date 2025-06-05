@@ -5,7 +5,7 @@ use fs_delta_tracker::{db, logging};
 
 static PROJECT_DIR: include_dir::Dir = include_dir::include_dir!("$CARGO_MANIFEST_DIR/assets");
 
-/// A Tokio-based, multi-threaded filesystem crawler/scanner.
+/// Command-line tool to initialize the PostgreSQL database for fs-delta-tracker.
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about)]
 struct Opt {
@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{}", "=".repeat(50));
     tracing::info!(
         "🔗 Database: {}",
-        opt.database_url.split('@').last().unwrap_or("***")
+        opt.database_url.split('@').next_back().unwrap_or("***")
     );
     tracing::info!(
         "📝 Log file: {}",

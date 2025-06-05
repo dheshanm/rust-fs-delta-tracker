@@ -2,9 +2,7 @@ use anyhow::Ok;
 use std::io::Write as _;
 
 /// Walk the directory in parallel, printing formatted TSV lines,
-#[tracing::instrument(
-    skip(output_tsv_file, data_root, progress_log_interval),
-)]
+#[tracing::instrument(skip(output_tsv_file, data_root, progress_log_interval))]
 pub async fn walk_directory(
     data_root: std::path::PathBuf,
     progress_log_interval: u64,
@@ -116,8 +114,11 @@ pub async fn walk_directory(
                                     .ok()
                                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                     .map(|d| {
-                                        let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0)
-                                            .unwrap_or_default();
+                                        let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                                            d.as_secs() as i64,
+                                            0,
+                                        )
+                                        .unwrap_or_default();
                                         dt.to_rfc3339()
                                     })
                                     .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
@@ -163,7 +164,9 @@ pub async fn walk_directory(
 
     // 7) final stats
     let total = counter.load(std::sync::atomic::Ordering::Relaxed) as f64;
-    let elapsed = std::time::Instant::now().duration_since(start).as_secs_f64();
+    let elapsed = std::time::Instant::now()
+        .duration_since(start)
+        .as_secs_f64();
     tracing::info!(
         "📊 Final stats: {} files in {:.1}s ({:.1} f/s)",
         total as u64,
@@ -172,20 +175,16 @@ pub async fn walk_directory(
     );
 
     let mut metadata = std::collections::HashMap::new();
-    metadata.insert("data_root".to_string(), data_root.to_string_lossy().to_string());
     metadata.insert(
-        "crawl_timer_duration_s".to_string(),
-        elapsed.to_string(),
+        "data_root".to_string(),
+        data_root.to_string_lossy().to_string(),
     );
-    metadata.insert(
-        "total_files_processed".to_string(),
-        total.to_string(),
-    );
+    metadata.insert("crawl_timer_duration_s".to_string(), elapsed.to_string());
+    metadata.insert("total_files_processed".to_string(), total.to_string());
     metadata.insert(
         "crawler_files_per_second".to_string(),
         (total / elapsed).to_string(),
     );
-
 
     Ok(metadata)
 }
