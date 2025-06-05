@@ -6,7 +6,7 @@ WITH -- 1) pull in the scan_root and turn it into an ltree
 scan_info AS (
     SELECT
         scan_root,
-        filesystem.text_to_ltree(scan_root) AS root_ltree
+        replace(btrim(scan_root, '/'), '/', '.')::ltree AS root_ltree
     FROM
         filesystem.scan_runs
     WHERE
