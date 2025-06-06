@@ -26,11 +26,6 @@ struct Opt {
     /// Default is 30 seconds.
     #[arg(long, env = "PROGRESS_INTERVAL", default_value_t = 30)]
     progress_interval: u64,
-
-    /// Output TSV file for the scanned files.
-    /// If not provided, output will be printed to stdout.
-    #[arg(long, env = "OUTPUT_TSV_FILE")]
-    output_tsv_file: std::path::PathBuf,
 }
 
 #[tokio::main]
@@ -67,12 +62,16 @@ async fn main() -> anyhow::Result<()> {
     let scan_id = data::start_scan(&client, &opt.data_root, started_at).await?;
     tracing::info!("🔍 Scan ID: {}", scan_id);
 
+    // Use a temporary file for output
+    let output_tsv_file = std::env::temp_dir().join(format!("scan_{}.tsv", scan_id));
+    tracing::info!("📝 Output TSV file: {}", output_tsv_file.display());
+
     tracing::info!("🔍 Starting directory walk...");
     let mut metadata = crawler::walk_directory(
         opt.data_root,
         opt.progress_interval,
         scan_id,
-        opt.output_tsv_file.clone(),
+        output_tsv_file.clone(),
     )
     .await
     .map_err(|e| {
@@ -84,9 +83,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         "📥 Loading TSV file -> staging: {}",
-        opt.output_tsv_file.display()
+        output_tsv_file.display()
     );
-    data::load_tsv_file(&client, opt.output_tsv_file.clone()).await?;
+    data::load_tsv_file(&client, output_tsv_file.clone()).await?;
     tracing::info!("📥 TSV file loaded into staging table");
 
     // Execute the SQL template file
@@ -114,7 +113,18 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🗑️ Staging table cleared for scan_id: {}", scan_id);
 
     tracing::info!("📊 Updating scan results in database...");
+    // Add Hostname to metadata
+    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    metadata.insert("hostname".to_string(), hostname);
     data::finalize_scan(&client, scan_id, metadata).await?;
+
+    tracing::info!("🗑️ Clearing TSV File: {}", output_tsv_file.display());
+    // Remove the temporary TSV file
+    if let Err(e) = std::fs::remove_file(&output_tsv_file) {
+        tracing::warn!("⚠️ Failed to remove temporary TSV file: {}", e);
+    } else {
+        tracing::info!("🗑️ Temporary TSV file removed successfully");
+    }
 
     tracing::info!("✅ Scan completed successfully!");
 
