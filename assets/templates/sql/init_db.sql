@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS filesystem.files (
     file_path TEXT PRIMARY KEY,
     file_mtime TIMESTAMPTZ NOT NULL,
     file_fingerprint TEXT NULL,
-    last_seen_scan INT NOT NULL REFERENCES filesystem.scan_runs(scan_id) ON UPDATE CASCADE,
+    last_seen_scan INT NOT NULL REFERENCES filesystem.scan_runs(scan_id) ON UPDATE CASCADE ON DELETE CASCADE,
     last_updated TIMESTAMPTZ NOT NULL DEFAULT now(),
     path_ltree ltree GENERATED ALWAYS AS (
         filesystem.text_to_ltree(file_path)
