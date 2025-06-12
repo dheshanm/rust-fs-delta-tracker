@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{}", "=".repeat(50));
 
     tracing::info!("🔗 Connecting to database...");
-    let (mut client, connection) =
+    let (client, connection) =
         tokio_postgres::connect(&opt.database_url, tokio_postgres::NoTls).await?;
     tokio::spawn(connection);
     tracing::info!("🔗 Connected to database");
