@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{}", "=".repeat(50));
 
     tracing::info!("🔗 Connecting to database...");
-    let (client, connection) =
+    let (mut client, connection) =
         tokio_postgres::connect(&opt.database_url, tokio_postgres::NoTls).await?;
     tokio::spawn(connection);
     tracing::info!("🔗 Connected to database");
@@ -114,7 +114,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("📊 Updating scan results in database...");
     // Add Hostname to metadata
-    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
     metadata.insert("hostname".to_string(), hostname);
     data::finalize_scan(&client, scan_id, metadata).await?;
 
