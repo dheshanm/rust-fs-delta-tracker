@@ -76,7 +76,7 @@ pub async fn load_tsv_file(
     // Returns the number of rows inserted into the staging table
     let query_header = "
         COPY filesystem.staging_files(
-            file_name, file_type, file_path, file_size_bytes, file_mtime, scan_id
+            file_name, file_type, file_path, file_size_bytes, file_mtime, file_fingerprint, scan_id
         )
         FROM STDIN
         WITH (

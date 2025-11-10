@@ -1,7 +1,7 @@
 use anyhow::Ok;
 use std::io::Write as _;
 
-/// Walk the directory in parallel, printing formatted TSV lines,
+/// Walk the directory in parallel, printing formatted TSV lines with fingerprints
 #[tracing::instrument(skip(output_tsv_file, data_root, progress_log_interval))]
 pub async fn walk_directory(
     data_root: std::path::PathBuf,
@@ -123,13 +123,21 @@ pub async fn walk_directory(
                                     })
                                     .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
 
+                                // Compute fingerprint in parallel
+                                let fingerprint = crate::fingerprint::compute_fingerprint_default(ent.path())
+                                    .unwrap_or_else(|e| {
+                                        tracing::warn!("Failed to compute fingerprint for {}: {}", ent.path().display(), e);
+                                        String::new()
+                                    });
+
                                 let line = format!(
-                                    "{}\t{}\t{}\t{}\t{}\t{}\n",
+                                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                                     fname,
                                     ext,
                                     ent.path().display(),
                                     size,
                                     mtime,
+                                    fingerprint,
                                     scan_id
                                 );
                                 cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

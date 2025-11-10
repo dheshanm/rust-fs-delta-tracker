@@ -102,6 +102,7 @@ CREATE UNLOGGED TABLE filesystem.staging_files (
     file_type TEXT NOT NULL,
     file_size_bytes BIGINT NOT NULL,
     file_mtime TIMESTAMPTZ NOT NULL,
+    file_fingerprint TEXT NULL,
     PRIMARY KEY (scan_id, file_path)
 );
 

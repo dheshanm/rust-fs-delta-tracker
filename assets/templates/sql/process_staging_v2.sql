@@ -66,7 +66,8 @@ new_files AS (
         s.file_type,
         s.file_size_bytes,
         s.file_path,
-        s.file_mtime
+        s.file_mtime,
+        s.file_fingerprint
     FROM
         staged AS s
         LEFT JOIN filesystem.files AS f ON f.file_path = s.file_path
@@ -91,8 +92,7 @@ ins_new AS (
         nf.file_size_bytes,
         nf.file_path,
         nf.file_mtime,
-        NULL,
-        -- fingerprint to be calculated later
+        nf.file_fingerprint,
         :scan_id,
         now()
     FROM
@@ -126,6 +126,7 @@ mods AS (
         s.file_type AS new_file_type,
         s.file_size_bytes AS new_size,
         s.file_mtime AS new_mtime,
+        s.file_fingerprint AS new_fingerprint,
         f.file_name AS old_file_name,
         f.file_type AS old_file_type,
         f.file_size_bytes AS old_size,
@@ -168,8 +169,7 @@ upd_mod AS (
         file_size_bytes = m.new_size,
         file_mtime = m.new_mtime,
         last_seen_scan = :scan_id,
-        file_fingerprint = NULL,
-        -- force re-hash
+        file_fingerprint = m.new_fingerprint,
         last_updated = now()
     FROM
         mods AS m
