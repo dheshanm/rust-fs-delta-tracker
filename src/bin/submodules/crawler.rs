@@ -28,6 +28,12 @@ struct Opt {
     /// Scan ID to use for this scan.
     #[arg(long, env = "SCAN_ID")]
     scan_id: i32,
+
+    /// Number of threads to use for parallel directory walking.
+    /// Higher values can improve throughput on network filesystems (NFS).
+    /// Default is number of logical CPUs.
+    #[arg(long, env = "NUM_THREADS", default_value_t = num_cpus::get())]
+    num_threads: usize,
 }
 
 #[tokio::main]
@@ -41,7 +47,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🚀 Starting filesystem crawler");
     tracing::info!("{}", "=".repeat(50));
     tracing::info!("📁 Scanning root: {}", opt.data_root.display());
+    tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
+    tracing::info!("📊 Output TSV file: {}", opt.output_tsv_file.display());
     tracing::info!("🔍 Scan ID: {}", opt.scan_id);
+    tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -53,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Walk the directory and process files
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_tsv_file)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_tsv_file, opt.num_threads)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);

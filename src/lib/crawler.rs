@@ -2,12 +2,13 @@ use anyhow::Ok;
 use std::io::Write as _;
 
 /// Walk the directory in parallel, printing formatted TSV lines with fingerprints
-#[tracing::instrument(skip(output_tsv_file, data_root, progress_log_interval))]
+#[tracing::instrument(skip(output_tsv_file, data_root, progress_log_interval, num_threads))]
 pub async fn walk_directory(
     data_root: std::path::PathBuf,
     progress_log_interval: u64,
     scan_id: i32,
     output_tsv_file: std::path::PathBuf,
+    num_threads: usize,
 ) -> anyhow::Result<std::collections::HashMap<String, String>> {
     // 1) channel
     let (tx, rx) = crossbeam_channel::unbounded::<String>();
@@ -93,6 +94,7 @@ pub async fn walk_directory(
     tokio::task::spawn_blocking(move || {
         let mut builder = ignore::WalkBuilder::new(root);
         builder.ignore(false).hidden(false).git_ignore(false);
+        builder.threads(num_threads);
 
         builder.build_parallel().run(|| {
             let tx = tx2.clone();

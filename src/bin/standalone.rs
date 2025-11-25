@@ -26,6 +26,12 @@ struct Opt {
     /// Default is 30 seconds.
     #[arg(long, env = "PROGRESS_INTERVAL", default_value_t = 30)]
     progress_interval: u64,
+
+    /// Number of threads to use for parallel directory walking.
+    /// Higher values can improve throughput on network filesystems (NFS).
+    /// Default is number of logical CPUs.
+    #[arg(long, env = "NUM_THREADS", default_value_t = num_cpus::get())]
+    num_threads: usize,
 }
 
 #[tokio::main]
@@ -43,6 +49,8 @@ async fn main() -> anyhow::Result<()> {
         "🔗 Database: {}",
         opt.database_url.split('@').next_back().unwrap_or("***")
     );
+    tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
+    tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -72,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         opt.progress_interval,
         scan_id,
         output_tsv_file.clone(),
+        opt.num_threads,
     )
     .await
     .map_err(|e| {
