@@ -109,6 +109,7 @@ pub async fn walk_directory(
                                     .path()
                                     .extension()
                                     .and_then(|s| s.to_str())
+                                    .filter(|s| !s.is_empty())
                                     .unwrap_or("unknown");
                                 let size = meta.len();
                                 let mtime = meta
