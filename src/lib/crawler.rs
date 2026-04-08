@@ -29,7 +29,6 @@ fn write_cache_header(out: &mut dyn std::io::Write) -> std::io::Result<()> {
 pub async fn walk_directory(
     data_root: std::path::PathBuf,
     progress_log_interval: u64,
-    scan_id: i32,
     output_cache_file: std::path::PathBuf,
     num_threads: usize,
     fingerprint: bool,

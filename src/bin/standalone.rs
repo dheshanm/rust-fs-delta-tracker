@@ -107,7 +107,6 @@ async fn main() -> anyhow::Result<()> {
     let mut metadata = crawler::walk_directory(
         opt.data_root,
         opt.progress_interval,
-        scan_id,
         output_cache_file.clone(),
         opt.num_threads,
         !opt.skip_fingerprint,
