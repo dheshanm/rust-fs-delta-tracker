@@ -117,6 +117,7 @@ pub async fn walk_directory(
 
         let mut builder = ignore::WalkBuilder::new(root);
         builder.ignore(false).hidden(false).git_ignore(false);
+        builder.same_file_system(true);
         builder.threads(num_threads);
 
         builder.build_parallel().run(|| {
@@ -151,6 +152,8 @@ pub async fn walk_directory(
                             let gid = meta.gid();
                             // Extract only permission bits (lower 12 bits)
                             let perm = meta.mode() & 0o7777;
+                            let nlink = meta.nlink();
+                            let blocks = meta.blocks();
 
                             let mtime_secs = meta
                                 .modified()
@@ -161,9 +164,22 @@ pub async fn walk_directory(
                                 .map(|d| d.as_secs() as i64)
                                 .unwrap_or(0);
 
-                            // Build the line based on entry type
-                            let line = if ft.is_file() {
-                                // Compute fingerprint for files only
+                            // Build optional suffix fields.
+                            // Directories don't get blocks: or links: per the QDirStat spec.
+                            let mut optional = String::new();
+                            if !ft.is_dir() {
+                                // blocks: only for sparse files (allocated < apparent size)
+                                if blocks * 512 < size {
+                                    optional.push_str(&format!("\tblocks: {}", blocks));
+                                }
+                                // links: only when hard-link count > 1
+                                if nlink > 1 {
+                                    optional.push_str(&format!("\tlinks: {}", nlink));
+                                }
+                            }
+
+                            // fingerprint: for regular files only
+                            if ft.is_file() {
                                 let fingerprint =
                                     crate::fingerprint::compute_fingerprint_default(ent.path())
                                         .unwrap_or_else(|e| {
@@ -174,44 +190,22 @@ pub async fn walk_directory(
                                             );
                                             String::new()
                                         });
-
-                                if fingerprint.is_empty() {
-                                    format!(
-                                        "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}\n",
-                                        type_char,
-                                        encoded_path,
-                                        size,
-                                        uid,
-                                        gid,
-                                        perm,
-                                        mtime_secs,
-                                    )
-                                } else {
-                                    format!(
-                                        "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}\tfingerprint: {}\n",
-                                        type_char,
-                                        encoded_path,
-                                        size,
-                                        uid,
-                                        gid,
-                                        perm,
-                                        mtime_secs,
-                                        fingerprint,
-                                    )
+                                if !fingerprint.is_empty() {
+                                    optional.push_str(&format!("\tfingerprint: {}", fingerprint));
                                 }
-                            } else {
-                                // Directory or symlink: no fingerprint
-                                format!(
-                                    "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}\n",
-                                    type_char,
-                                    encoded_path,
-                                    size,
-                                    uid,
-                                    gid,
-                                    perm,
-                                    mtime_secs,
-                                )
-                            };
+                            }
+
+                            let line = format!(
+                                "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}{}\n",
+                                type_char,
+                                encoded_path,
+                                size,
+                                uid,
+                                gid,
+                                perm,
+                                mtime_secs,
+                                optional,
+                            );
 
                             cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let _ = tx.send(line);
