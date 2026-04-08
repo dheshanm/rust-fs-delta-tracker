@@ -32,6 +32,7 @@ pub async fn walk_directory(
     scan_id: i32,
     output_cache_file: std::path::PathBuf,
     num_threads: usize,
+    fingerprint: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, String>> {
     // 1) channel
     let (tx, rx) = crossbeam_channel::unbounded::<String>();
@@ -179,8 +180,8 @@ pub async fn walk_directory(
                             }
 
                             // fingerprint: for regular files only
-                            if ft.is_file() {
-                                let fingerprint =
+                            if ft.is_file() && fingerprint {
+                                let fp =
                                     crate::fingerprint::compute_fingerprint_default(ent.path())
                                         .unwrap_or_else(|e| {
                                             tracing::warn!(
@@ -190,8 +191,8 @@ pub async fn walk_directory(
                                             );
                                             String::new()
                                         });
-                                if !fingerprint.is_empty() {
-                                    optional.push_str(&format!("\tfingerprint: {}", fingerprint));
+                                if !fp.is_empty() {
+                                    optional.push_str(&format!("\tfingerprint: {}", fp));
                                 }
                             }
 

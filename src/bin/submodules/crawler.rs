@@ -33,6 +33,11 @@ struct Opt {
     /// Default is number of logical CPUs.
     #[arg(long, env = "NUM_THREADS", default_value_t = num_cpus::get())]
     num_threads: usize,
+
+    /// Skip computing a content fingerprint (hash) for each regular file.
+    /// Use this flag to speed up scans.
+    #[arg(long, env = "SKIP_FINGERPRINT")]
+    skip_fingerprint: bool,
 }
 
 #[tokio::main]
@@ -60,8 +65,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{}", "=".repeat(50));
 
     // Walk the directory and process files
+    tracing::info!("🔍 Fingerprinting: {}", !opt.skip_fingerprint);
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_cache_file, opt.num_threads)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_cache_file, opt.num_threads, !opt.skip_fingerprint)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);

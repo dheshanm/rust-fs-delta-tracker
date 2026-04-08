@@ -42,6 +42,11 @@ struct Opt {
     /// Preserve the QDirStat cache file after the scan completes.
     #[arg(long, env = "PRESERVE_CACHE_FILE", default_value_t = false)]
     preserve_cache_file: bool,
+
+    /// Skip computing a content fingerprint (hash) for each regular file.
+    /// Use this flag to speed up scans.
+    #[arg(long, env = "SKIP_FINGERPRINT")]
+    skip_fingerprint: bool,
 }
 
 #[tokio::main]
@@ -97,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     });
     tracing::info!("📝 Output cache file: {}", output_cache_file.display());
 
+    tracing::info!("🔍 Fingerprinting: {}", !opt.skip_fingerprint);
     tracing::info!("🔍 Starting directory walk...");
     let mut metadata = crawler::walk_directory(
         opt.data_root,
@@ -104,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
         scan_id,
         output_cache_file.clone(),
         opt.num_threads,
+        !opt.skip_fingerprint,
     )
     .await
     .map_err(|e| {
