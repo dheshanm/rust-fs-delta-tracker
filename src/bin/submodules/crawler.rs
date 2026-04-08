@@ -20,10 +20,9 @@ struct Opt {
     #[arg(long, env = "PROGRESS_INTERVAL", default_value_t = 30)]
     progress_interval: u64,
 
-    /// Output TSV file for the scanned files.
-    /// If not provided, output will be printed to stdout.
-    #[arg(long, env = "OUTPUT_TSV_FILE")]
-    output_tsv_file: std::path::PathBuf,
+    /// Output QDirStat cache file for the scanned entries.
+    #[arg(long, env = "OUTPUT_CACHE_FILE")]
+    output_cache_file: std::path::PathBuf,
 
     /// Scan ID to use for this scan.
     #[arg(long, env = "SCAN_ID")]
@@ -48,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{}", "=".repeat(50));
     tracing::info!("📁 Scanning root: {}", opt.data_root.display());
     tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
-    tracing::info!("📊 Output TSV file: {}", opt.output_tsv_file.display());
+    tracing::info!("📊 Output cache file: {}", opt.output_cache_file.display());
     tracing::info!("🔍 Scan ID: {}", opt.scan_id);
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!(
@@ -62,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Walk the directory and process files
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_tsv_file, opt.num_threads)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.scan_id, opt.output_cache_file, opt.num_threads)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);

@@ -21,7 +21,7 @@ staged AS (
     WHERE
         s.scan_id = :scan_id
 ),
--- 3) delete any files in 'filesystem.files' under this root that did NOT show up in staging
+-- 3) delete any entries in 'filesystem.files' under this root that did NOT show up in staging
 deleted AS (
     DELETE FROM
         filesystem.files AS f USING scan_info
@@ -37,7 +37,7 @@ deleted AS (
                 s2.file_path = f.file_path
         ) RETURNING f.file_path AS file_path,
         f.file_name AS old_file_name,
-        f.file_type AS old_file_type,
+        f.entry_type AS old_entry_type,
         f.file_size_bytes AS old_size_bytes,
         f.file_mtime AS old_mtime
 ),
@@ -48,26 +48,32 @@ ins_deleted AS (
             file_path,
             change_type,
             old_size_bytes,
-            old_mtime
+            old_mtime,
+            entry_type
         )
     SELECT
         :scan_id,
         file_path,
         'deleted',
         old_size_bytes,
-        old_mtime
+        old_mtime,
+        old_entry_type
     FROM
         deleted
 ),
--- 4) find brand-new files in staging (no existing row in filesystem.files)
+-- 4) find brand-new entries in staging (no existing row in filesystem.files)
 new_files AS (
     SELECT
         s.file_name,
-        s.file_type,
+        s.entry_type,
+        s.file_extension,
         s.file_size_bytes,
         s.file_path,
         s.file_mtime,
-        s.file_fingerprint
+        s.file_fingerprint,
+        s.uid,
+        s.gid,
+        s.permissions
     FROM
         staged AS s
         LEFT JOIN filesystem.files AS f ON f.file_path = s.file_path
@@ -78,25 +84,34 @@ ins_new AS (
     INSERT INTO
         filesystem.files (
             file_name,
-            file_type,
+            entry_type,
+            file_extension,
             file_size_bytes,
             file_path,
             file_mtime,
             file_fingerprint,
+            uid,
+            gid,
+            permissions,
             last_seen_scan,
             last_updated
         )
     SELECT
         nf.file_name,
-        nf.file_type,
+        nf.entry_type,
+        nf.file_extension,
         nf.file_size_bytes,
         nf.file_path,
         nf.file_mtime,
         nf.file_fingerprint,
+        nf.uid,
+        nf.gid,
+        nf.permissions,
         :scan_id,
         now()
     FROM
         new_files AS nf RETURNING file_path,
+        entry_type,
         file_size_bytes AS new_size_bytes,
         file_mtime AS new_mtime
 ),
@@ -107,28 +122,34 @@ rec_new AS (
             file_path,
             change_type,
             new_size_bytes,
-            new_mtime
+            new_mtime,
+            entry_type
         )
     SELECT
         :scan_id,
         file_path,
         'added',
         new_size_bytes,
-        new_mtime
+        new_mtime,
+        entry_type
     FROM
         ins_new
 ),
--- 5) modified files (same path exists but size or mtime changed)
+-- 5) modified entries (same path exists but size or mtime changed)
 mods AS (
     SELECT
         s.file_path,
         s.file_name AS new_file_name,
-        s.file_type AS new_file_type,
+        s.entry_type AS new_entry_type,
+        s.file_extension AS new_file_extension,
         s.file_size_bytes AS new_size,
         s.file_mtime AS new_mtime,
         s.file_fingerprint AS new_fingerprint,
+        s.uid AS new_uid,
+        s.gid AS new_gid,
+        s.permissions AS new_permissions,
         f.file_name AS old_file_name,
-        f.file_type AS old_file_type,
+        f.entry_type AS old_entry_type,
         f.file_size_bytes AS old_size,
         f.file_mtime AS old_mtime
     FROM
@@ -147,7 +168,8 @@ ins_mod AS (
             old_size_bytes,
             new_size_bytes,
             old_mtime,
-            new_mtime
+            new_mtime,
+            entry_type
         )
     SELECT
         :scan_id,
@@ -156,7 +178,8 @@ ins_mod AS (
         old_size,
         new_size,
         old_mtime,
-        new_mtime
+        new_mtime,
+        new_entry_type
     FROM
         mods
 ),
@@ -165,18 +188,22 @@ upd_mod AS (
         filesystem.files AS f
     SET
         file_name = m.new_file_name,
-        file_type = m.new_file_type,
+        entry_type = m.new_entry_type,
+        file_extension = m.new_file_extension,
         file_size_bytes = m.new_size,
         file_mtime = m.new_mtime,
         last_seen_scan = :scan_id,
         file_fingerprint = m.new_fingerprint,
+        uid = m.new_uid,
+        gid = m.new_gid,
+        permissions = m.new_permissions,
         last_updated = now()
     FROM
         mods AS m
     WHERE
         f.file_path = m.file_path
 ),
--- 6) untouched files: just bump last_seen_scan
+-- 6) untouched entries: just bump last_seen_scan
 upd_unchanged AS (
     UPDATE
         filesystem.files AS f
