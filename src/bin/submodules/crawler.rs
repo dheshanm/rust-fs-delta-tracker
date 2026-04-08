@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     // Walk the directory and process files
     tracing::info!("🔍 Fingerprinting: {}", !opt.skip_fingerprint);
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file, opt.num_threads, !opt.skip_fingerprint)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file.clone(), opt.num_threads, !opt.skip_fingerprint)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);
@@ -70,7 +70,11 @@ async fn main() -> anyhow::Result<()> {
         })?;
     tracing::info!("🔍 Directory walk completed");
 
-    // tracing::info!("🔍 Scan completed with ID: {}", scan_id);
+    // Print absolute path of the output cache file
+    tracing::info!("📂 Output cache file absolute path: {}", opt.output_cache_file.canonicalize()?.display());
+    tracing::info!("📂 Output cache file size: {}", bytesize::ByteSize(std::fs::metadata(&opt.output_cache_file)?.len()));
+
+
     tracing::info!("✅ Filesystem crawler finished successfully");
 
     Ok(())

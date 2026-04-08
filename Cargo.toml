@@ -1,6 +1,6 @@
 [package]
 name = "fs_delta_tracker"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [[bin]]
@@ -47,6 +47,7 @@ blake3 = "1.5"
 num_cpus = "1.17.0"
 percent-encoding = "2"
 flate2 = "1"
+bytesize = "1"
 
 [dev-dependencies]
 tempfile = "3.14"
