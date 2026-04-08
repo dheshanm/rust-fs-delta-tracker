@@ -11,9 +11,9 @@ path = "src/bin/standalone.rs"
 name = "initialize_db"
 path = "src/bin/initialize_db.rs"
 
-# [[bin]]
-# name = "crawler"
-# path = "src/bin/submodules/crawler.rs"
+[[bin]]
+name = "crawler"
+path = "src/bin/submodules/crawler.rs"
 
 # [[bin]]
 # name = "start_scan"
@@ -43,3 +43,8 @@ bytes = "1.10.1"
 serde_json = "1.0.140"
 include_dir = "0.7.4"
 hostname = "0.4.1"
+blake3 = "1.5"
+num_cpus = "1.17.0"
+
+[dev-dependencies]
+tempfile = "3.14"
