@@ -167,111 +167,125 @@ pub async fn walk_directory(
             let tx = tx2.clone();
             let cnt = counter2.clone();
             Box::new(move |res| {
-                if let std::result::Result::Ok(ent) = res {
-                    if let Some(ft) = ent.file_type() {
-                        if let std::result::Result::Ok(meta) = ent.metadata() {
-                            // Determine entry type
-                            let type_char = if ft.is_file() {
-                                "F"
-                            } else if ft.is_dir() {
-                                "D"
-                            } else if ft.is_symlink() {
-                                "L"
-                            } else if ft.is_block_device() {
-                                "BlockDev"
-                            } else if ft.is_char_device() {
-                                "CharDev"
-                            } else if ft.is_fifo() {
-                                "FIFO"
-                            } else if ft.is_socket() {
-                                "Socket"
-                            } else {
-                                return ignore::WalkState::Continue;
-                            };
+                let ent = match res {
+                    Err(e) => {
+                        // tracing::warn!("Skipped entry: {}", e);
+                        let _ = tx.send(format!("# skipped: {}\n", e));
+                        return ignore::WalkState::Continue;
+                    }
+                    std::result::Result::Ok(e) => e,
+                };
 
-                            // Byte-level percent-encoding: preserves non-UTF-8 byte
-                            // sequences from the OS (Latin-1, Shift-JIS, etc.) faithfully,
-                            // matching what readdir() returns and what the Perl script writes.
-                            let encoded_path = percent_encoding::percent_encode(
-                                ent.path().as_os_str().as_bytes(),
-                                QDIRSTAT_ENCODE_SET,
-                            )
-                            .to_string();
+                let ft = match ent.file_type() {
+                    Some(ft) => ft,
+                    None => {
+                        let path_str = ent.path().display().to_string();
+                        tracing::warn!("Could not determine file type for {}", path_str);
+                        let _ = tx.send(format!(
+                            "# skipped: {} - could not determine file type\n",
+                            path_str
+                        ));
+                        return ignore::WalkState::Continue;
+                    }
+                };
 
-                            let size = meta.len();
-                            let uid = meta.uid();
-                            let gid = meta.gid();
-                            // Extract only permission bits (lower 12 bits)
-                            let perm = meta.mode() & 0o7777;
-                            let nlink = meta.nlink();
-                            let blocks = meta.blocks();
-                            // Zero directory size when --ignore-dir-size is set.
-                            // Useful for CephFS and similar filesystems that report
-                            // the subtree total as the directory inode's own size.
-                            let effective_size = if ft.is_dir() && ignore_dir_size { 0u64 } else { size };
+                let meta = match ent.metadata() {
+                    std::result::Result::Ok(m) => m,
+                    Err(e) => {
+                        let path_str = ent.path().display().to_string();
+                        tracing::warn!("Metadata error for {}: {}", path_str, e);
+                        let _ = tx.send(format!("# skipped: {} - {}\n", path_str, e));
+                        return ignore::WalkState::Continue;
+                    }
+                };
 
-                            let mtime_secs = meta
-                                .modified()
-                                .ok()
-                                .and_then(|t| {
-                                    t.duration_since(std::time::UNIX_EPOCH).ok()
-                                })
-                                .map(|d| d.as_secs() as i64)
-                                .unwrap_or(0);
+                // Determine entry type
+                let type_char = if ft.is_file() {
+                    "F"
+                } else if ft.is_dir() {
+                    "D"
+                } else if ft.is_symlink() {
+                    "L"
+                } else if ft.is_block_device() {
+                    "BlockDev"
+                } else if ft.is_char_device() {
+                    "CharDev"
+                } else if ft.is_fifo() {
+                    "FIFO"
+                } else if ft.is_socket() {
+                    "Socket"
+                } else {
+                    return ignore::WalkState::Continue;
+                };
 
-                            // Build optional suffix fields.
-                            // Directories don't get blocks: or links: per the QDirStat spec.
-                            let mut optional = String::new();
-                            if !ft.is_dir() {
-                                // blocks: only for sparse files (allocated < apparent size)
-                                // Guard blocks > 0: a zero-block file with size > 0 is valid
-                                // on some filesystems and must not be flagged as sparse.
-                                if blocks > 0 && blocks * 512 < size {
-                                    optional.push_str(&format!("\tblocks: {}", blocks));
-                                }
-                                // links: only when hard-link count > 1
-                                if nlink > 1 {
-                                    optional.push_str(&format!("\tlinks: {}", nlink));
-                                }
-                            }
+                // Byte-level percent-encoding: preserves non-UTF-8 byte
+                // sequences from the OS (Latin-1, Shift-JIS, etc.) faithfully,
+                // matching what readdir() returns and what the Perl script writes.
+                let encoded_path = percent_encoding::percent_encode(
+                    ent.path().as_os_str().as_bytes(),
+                    QDIRSTAT_ENCODE_SET,
+                )
+                .to_string();
 
-                            // fingerprint: for regular files only
-                            if ft.is_file() && fingerprint {
-                                let fp =
-                                    crate::fingerprint::compute_fingerprint_default(ent.path())
-                                        .unwrap_or_else(|_e| {
-                                            // Silenced: files that can't be opened (e.g. permission-denied
-                                            // sandbox metadata) simply get no fingerprint rather than
-                                            // flooding the log.
-                                            // tracing::warn!(
-                                            //     "Failed to compute fingerprint for {}: {}",
-                                            //     ent.path().display(),
-                                            //     _e
-                                            // );
-                                            String::new()
-                                        });
-                                if !fp.is_empty() {
-                                    optional.push_str(&format!("\tfingerprint: {}", fp));
-                                }
-                            }
+                let size = meta.len();
+                let uid = meta.uid();
+                let gid = meta.gid();
+                // Extract only permission bits (lower 12 bits)
+                let perm = meta.mode() & 0o7777;
+                let nlink = meta.nlink();
+                let blocks = meta.blocks();
+                // Zero directory size when --ignore-dir-size is set.
+                // Useful for CephFS and similar filesystems that report
+                // the subtree total as the directory inode's own size.
+                let effective_size = if ft.is_dir() && ignore_dir_size { 0u64 } else { size };
 
-                            let line = format!(
-                                "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}{}\n",
-                                type_char,
-                                encoded_path,
-                                effective_size,
-                                uid,
-                                gid,
-                                perm,
-                                mtime_secs,
-                                optional,
-                            );
+                let mtime_secs = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
 
-                            cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            let _ = tx.send(line);
+                // Build optional suffix fields.
+                // Directories don't get blocks: or links: per the QDirStat spec.
+                let mut optional = String::new();
+                if !ft.is_dir() {
+                    // blocks: only for sparse files (allocated < apparent size).
+                    // Guard blocks > 0: a zero-block file with size > 0 is valid
+                    // on some filesystems and must not be flagged as sparse.
+                    if blocks > 0 && blocks * 512 < size {
+                        optional.push_str(&format!("\tblocks: {}", blocks));
+                    }
+                    // links: only when hard-link count > 1
+                    if nlink > 1 {
+                        optional.push_str(&format!("\tlinks: {}", nlink));
+                    }
+                }
+
+                // fingerprint: for regular files only; failures are silently skipped
+                // (no comment emitted – a missing fingerprint is not a skipped entry).
+                if ft.is_file() && fingerprint {
+                    if let std::result::Result::Ok(fp) = crate::fingerprint::compute_fingerprint_default(ent.path()) {
+                        if !fp.is_empty() {
+                            optional.push_str(&format!("\tfingerprint: {}", fp));
                         }
                     }
                 }
+
+                let line = format!(
+                    "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}{}\n",
+                    type_char,
+                    encoded_path,
+                    effective_size,
+                    uid,
+                    gid,
+                    perm,
+                    mtime_secs,
+                    optional,
+                );
+
+                cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _ = tx.send(line);
                 ignore::WalkState::Continue
             })
         });
@@ -283,25 +297,25 @@ pub async fn walk_directory(
     .await?;
 
     // Write a footer comment before closing the channel so the file always
-    // contains proof that the crawler ran to completion.
+    // contains a record of how the crawler ended.
     tracing::debug!("📂 Directory walk completed, writing footer...");
     let total_entries = counter.load(std::sync::atomic::Ordering::Relaxed);
-    let completed_at = chrono::Utc::now().to_rfc3339();
+    let timestamp = chrono::Utc::now().to_rfc3339();
     let footer = format!(
         "\n\
         # --- fs-delta-tracker crawler footer ---\n\
         # Status: COMPLETED\n\
         # Total entries: {}\n\
-        # Completed at: {}\n\
+        # Timestamp: {}\n\
         # --- fs-delta-tracker crawler footer ---\n",
-        total_entries, completed_at, 
+        total_entries, timestamp,
     );
     let _ = tx.send(footer);
     // drop the original TX here so that the writer thread sees EOF
     drop(tx);
 
     // signal the progress thread to stop
-    tracing::debug!("🔚 Signaling progress thread to stop...");
+    tracing::debug!("\u{1f51a} Signaling progress thread to stop...");
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = stop_tx.send(());
 
