@@ -37,6 +37,17 @@ struct Opt {
     #[arg(long, env = "SKIP_FINGERPRINT")]
     skip_fingerprint: bool,
 
+    /// Cross filesystem boundaries during the walk.
+    /// By default the crawler stays on the same filesystem as the scan root.
+    #[arg(long, env = "CROSS_FILESYSTEMS")]
+    cross_filesystems: bool,
+
+    /// Zero the size field for directory entries.
+    /// Useful for distributed filesystems (e.g. CephFS) that report the
+    /// subtree total as the directory inode's own size.
+    #[arg(long, env = "IGNORE_DIR_SIZE")]
+    ignore_dir_size: bool,
+
 }
 
 #[tokio::main]
@@ -54,6 +65,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("📊 Output cache file: {}", opt.output_cache_file.display());
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!("🫆 Fingerprinting: {}", !opt.skip_fingerprint);
+    tracing::info!("🌐 Cross filesystems: {}", opt.cross_filesystems);
+    tracing::info!("📁 Ignore dir size: {}", opt.ignore_dir_size);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -69,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Walk the directory and process files
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file.clone(), opt.num_threads, !opt.skip_fingerprint, compress)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file.clone(), opt.num_threads, !opt.skip_fingerprint, compress, opt.cross_filesystems, opt.ignore_dir_size)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);

@@ -116,6 +116,8 @@ async fn main() -> anyhow::Result<()> {
         opt.num_threads,
         !opt.skip_fingerprint,
         compress,
+        false, // cross_filesystems: not exposed in standalone CLI
+        false, // ignore_dir_size: not exposed in standalone CLI
     )
     .await
     .map_err(|e| {

@@ -36,6 +36,8 @@ pub async fn walk_directory(
     num_threads: usize,
     fingerprint: bool,
     compress: bool,
+    cross_filesystems: bool,
+    ignore_dir_size: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, String>> {
     // 1) channel
     let (tx, rx) = crossbeam_channel::unbounded::<String>();
@@ -153,10 +155,12 @@ pub async fn walk_directory(
 
     tokio::task::spawn_blocking(move || {
         use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::FileTypeExt;
+        use std::os::unix::ffi::OsStrExt;
 
         let mut builder = ignore::WalkBuilder::new(root);
         builder.ignore(false).hidden(false).git_ignore(false);
-        builder.same_file_system(true);
+        builder.same_file_system(!cross_filesystems);
         builder.threads(num_threads);
 
         builder.build_parallel().run(|| {
@@ -173,15 +177,23 @@ pub async fn walk_directory(
                                 "D"
                             } else if ft.is_symlink() {
                                 "L"
+                            } else if ft.is_block_device() {
+                                "BlockDev"
+                            } else if ft.is_char_device() {
+                                "CharDev"
+                            } else if ft.is_fifo() {
+                                "FIFO"
+                            } else if ft.is_socket() {
+                                "Socket"
                             } else {
-                                // Skip special files (BlockDev, CharDev, FIFO, Socket)
                                 return ignore::WalkState::Continue;
                             };
 
-                            // Absolute path, percent-encoded per QDirStat spec
-                            let raw_path = ent.path().to_string_lossy();
-                            let encoded_path = percent_encoding::utf8_percent_encode(
-                                &raw_path,
+                            // Byte-level percent-encoding: preserves non-UTF-8 byte
+                            // sequences from the OS (Latin-1, Shift-JIS, etc.) faithfully,
+                            // matching what readdir() returns and what the Perl script writes.
+                            let encoded_path = percent_encoding::percent_encode(
+                                ent.path().as_os_str().as_bytes(),
                                 QDIRSTAT_ENCODE_SET,
                             )
                             .to_string();
@@ -193,6 +205,10 @@ pub async fn walk_directory(
                             let perm = meta.mode() & 0o7777;
                             let nlink = meta.nlink();
                             let blocks = meta.blocks();
+                            // Zero directory size when --ignore-dir-size is set.
+                            // Useful for CephFS and similar filesystems that report
+                            // the subtree total as the directory inode's own size.
+                            let effective_size = if ft.is_dir() && ignore_dir_size { 0u64 } else { size };
 
                             let mtime_secs = meta
                                 .modified()
@@ -208,7 +224,9 @@ pub async fn walk_directory(
                             let mut optional = String::new();
                             if !ft.is_dir() {
                                 // blocks: only for sparse files (allocated < apparent size)
-                                if blocks * 512 < size {
+                                // Guard blocks > 0: a zero-block file with size > 0 is valid
+                                // on some filesystems and must not be flagged as sparse.
+                                if blocks > 0 && blocks * 512 < size {
                                     optional.push_str(&format!("\tblocks: {}", blocks));
                                 }
                                 // links: only when hard-link count > 1
@@ -241,7 +259,7 @@ pub async fn walk_directory(
                                 "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}{}\n",
                                 type_char,
                                 encoded_path,
-                                size,
+                                effective_size,
                                 uid,
                                 gid,
                                 perm,
