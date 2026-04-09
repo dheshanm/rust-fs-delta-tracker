@@ -47,6 +47,11 @@ struct Opt {
     /// Use this flag to speed up scans.
     #[arg(long, env = "SKIP_FINGERPRINT")]
     skip_fingerprint: bool,
+
+    /// Skip compressing the output cache file with gzip.
+    /// By default the cache file is written as gzip (compatible with QDirStat).
+    #[arg(long, env = "SKIP_COMPRESS")]
+    skip_compress: bool,
 }
 
 #[tokio::main]
@@ -66,6 +71,8 @@ async fn main() -> anyhow::Result<()> {
     );
     tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
+    tracing::info!("🫆 Fingerprinting: {}", !opt.skip_fingerprint);
+    tracing::info!("🗜️ Compress output: {}", !opt.skip_compress);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -98,11 +105,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Use a temporary file for output (QDirStat cache format)
     let output_cache_file = opt.cache_file.clone().unwrap_or_else(|| {
-        std::env::temp_dir().join(format!("scan_{}.qdirstat.cache", scan_id))
+        let ext = if !opt.skip_compress { "qdirstat.cache.gz" } else { "qdirstat.cache" };
+        std::env::temp_dir().join(format!("scan_{}.{}", scan_id, ext))
     });
     tracing::info!("📝 Output cache file: {}", output_cache_file.display());
 
-    tracing::info!("🔍 Fingerprinting: {}", !opt.skip_fingerprint);
     tracing::info!("🔍 Starting directory walk...");
     let mut metadata = crawler::walk_directory(
         opt.data_root,
@@ -110,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
         output_cache_file.clone(),
         opt.num_threads,
         !opt.skip_fingerprint,
+        !opt.skip_compress,
     )
     .await
     .map_err(|e| {

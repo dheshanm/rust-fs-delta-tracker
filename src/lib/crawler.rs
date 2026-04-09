@@ -33,6 +33,7 @@ pub async fn walk_directory(
     output_cache_file: std::path::PathBuf,
     num_threads: usize,
     fingerprint: bool,
+    compress: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, String>> {
     // 1) channel
     let (tx, rx) = crossbeam_channel::unbounded::<String>();
@@ -57,24 +58,43 @@ pub async fn walk_directory(
                 tracing::error!("Failed to create output file {:?}: {}", output_path, e);
                 e
             })?;
-            let mut out = std::io::BufWriter::new(f);
 
-            // Write QDirStat header
-            write_cache_header(&mut out).map_err(|e| {
-                tracing::error!("Failed to write cache header to {:?}: {}", output_path, e);
-                e
-            })?;
-
-            for line in rx {
-                out.write_all(line.as_bytes()).map_err(|e| {
-                    tracing::error!("Failed to write to {:?}: {}", output_path, e);
+            if compress {
+                let mut out = flate2::write::GzEncoder::new(
+                    std::io::BufWriter::new(f),
+                    flate2::Compression::default(),
+                );
+                write_cache_header(&mut out).map_err(|e| {
+                    tracing::error!("Failed to write cache header to {:?}: {}", output_path, e);
+                    e
+                })?;
+                for line in rx {
+                    out.write_all(line.as_bytes()).map_err(|e| {
+                        tracing::error!("Failed to write to {:?}: {}", output_path, e);
+                        e
+                    })?;
+                }
+                out.finish().map_err(|e| {
+                    tracing::error!("Failed to finish gzip encoding for {:?}: {}", output_path, e);
+                    e
+                })?;
+            } else {
+                let mut out = std::io::BufWriter::new(f);
+                write_cache_header(&mut out).map_err(|e| {
+                    tracing::error!("Failed to write cache header to {:?}: {}", output_path, e);
+                    e
+                })?;
+                for line in rx {
+                    out.write_all(line.as_bytes()).map_err(|e| {
+                        tracing::error!("Failed to write to {:?}: {}", output_path, e);
+                        e
+                    })?;
+                }
+                out.flush().map_err(|e| {
+                    tracing::error!("Failed to flush {:?}: {}", output_path, e);
                     e
                 })?;
             }
-            out.flush().map_err(|e| {
-                tracing::error!("Failed to flush {:?}: {}", output_path, e);
-                e
-            })?;
             Ok(())
         })
     };
