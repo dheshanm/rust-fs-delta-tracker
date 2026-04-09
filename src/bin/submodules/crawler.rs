@@ -21,6 +21,8 @@ struct Opt {
     progress_interval: u64,
 
     /// Output QDirStat cache file for the scanned entries.
+    /// If the path ends with `.gz` the file is written as gzip-compressed (compatible with QDirStat);
+    /// otherwise it is written as plain text.
     #[arg(long, env = "OUTPUT_CACHE_FILE")]
     output_cache_file: std::path::PathBuf,
 
@@ -35,10 +37,6 @@ struct Opt {
     #[arg(long, env = "SKIP_FINGERPRINT")]
     skip_fingerprint: bool,
 
-    /// Skip compressing the output cache file with gzip.
-    /// By default the cache file is written as gzip (compatible with QDirStat).
-    #[arg(long, env = "SKIP_COMPRESS")]
-    skip_compress: bool,
 }
 
 #[tokio::main]
@@ -56,7 +54,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("📊 Output cache file: {}", opt.output_cache_file.display());
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!("🫆 Fingerprinting: {}", !opt.skip_fingerprint);
-    tracing::info!("🗜️ Compress output: {}", !opt.skip_compress);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -66,9 +63,13 @@ async fn main() -> anyhow::Result<()> {
     );
     tracing::info!("{}", "=".repeat(50));
 
+    // Compression is implied by the file extension: files ending in `.gz` are gzip-compressed.
+    let compress = opt.output_cache_file.extension().map_or(false, |ext| ext == "gz");
+    tracing::info!("🗜️ Compress output: {}", compress);
+
     // Walk the directory and process files
     tracing::info!("🔍 Starting directory walk...");
-    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file.clone(), opt.num_threads, !opt.skip_fingerprint, !opt.skip_compress)
+    crawler::walk_directory(opt.data_root, opt.progress_interval, opt.output_cache_file.clone(), opt.num_threads, !opt.skip_fingerprint, compress)
         .await
         .map_err(|e| {
             tracing::error!("Failed to walk directory: {}", e);

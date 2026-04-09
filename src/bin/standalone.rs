@@ -35,7 +35,8 @@ struct Opt {
     num_threads: usize,
 
     /// Path for the QDirStat cache file.
-    /// Defaults to a temporary file in the system temp directory.
+    /// Defaults to a temporary `.qdirstat.cache.gz` file in the system temp directory.
+    /// If the path ends with `.gz` the file is written as gzip; otherwise it is written as plain text.
     #[arg(long, env = "CACHE_FILE")]
     cache_file: Option<std::path::PathBuf>,
 
@@ -48,10 +49,6 @@ struct Opt {
     #[arg(long, env = "SKIP_FINGERPRINT")]
     skip_fingerprint: bool,
 
-    /// Skip compressing the output cache file with gzip.
-    /// By default the cache file is written as gzip (compatible with QDirStat).
-    #[arg(long, env = "SKIP_COMPRESS")]
-    skip_compress: bool,
 }
 
 #[tokio::main]
@@ -72,7 +69,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
     tracing::info!("🫆 Fingerprinting: {}", !opt.skip_fingerprint);
-    tracing::info!("🗜️ Compress output: {}", !opt.skip_compress);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
@@ -103,12 +99,14 @@ async fn main() -> anyhow::Result<()> {
     let scan_id = data::start_scan(&client, &opt.data_root, started_at).await?;
     tracing::info!("🔍 Scan ID: {}", scan_id);
 
-    // Use a temporary file for output (QDirStat cache format)
+    // Use a temporary file for output (QDirStat cache format).
+    // Compression is implied by the file extension: files ending in `.gz` are gzip-compressed.
     let output_cache_file = opt.cache_file.clone().unwrap_or_else(|| {
-        let ext = if !opt.skip_compress { "qdirstat.cache.gz" } else { "qdirstat.cache" };
-        std::env::temp_dir().join(format!("scan_{}.{}", scan_id, ext))
+        std::env::temp_dir().join(format!("scan_{}.qdirstat.cache.gz", scan_id))
     });
+    let compress = output_cache_file.extension().map_or(false, |ext| ext == "gz");
     tracing::info!("📝 Output cache file: {}", output_cache_file.display());
+    tracing::info!("🗜️ Compress output: {}", compress);
 
     tracing::info!("🔍 Starting directory walk...");
     let mut metadata = crawler::walk_directory(
@@ -117,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
         output_cache_file.clone(),
         opt.num_threads,
         !opt.skip_fingerprint,
-        !opt.skip_compress,
+        compress,
     )
     .await
     .map_err(|e| {
