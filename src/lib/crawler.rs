@@ -10,6 +10,24 @@ const QDIRSTAT_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONT
     .add(b'\n')
     .add(b'\r');
 
+/// Return the block-device name (e.g. `/dev/sda1`) that backs `path` by
+/// invoking `df`. Falls back to `"<unknown>"` on any error or unexpected output.
+fn get_device_name(path: &std::path::Path) -> String {
+    std::process::Command::new("df")
+        .arg(path)
+        .output()
+        .ok()
+        .and_then(|out| {
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let mut lines = stdout.lines();
+            lines.next(); // skip header line
+            lines.next()
+                .and_then(|line| line.split_whitespace().next())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "<unknown>".to_string())
+}
+
 /// Write the QDirStat V2.0 cache file header.
 fn write_cache_header(out: &mut dyn std::io::Write) -> std::io::Result<()> {
     let started_at = chrono::Utc::now().to_rfc3339();
@@ -264,6 +282,12 @@ pub async fn walk_directory(
 
                 // fingerprint: for regular files only; failures are silently skipped
                 // (no comment emitted – a missing fingerprint is not a skipped entry).
+                //
+                // NOTE: `fingerprint:` is a non-standard extension field beyond the two optional
+                // fields defined by the QDirStat V2.0 spec (`blocks:`, `links:`). Current QDirStat
+                // silently tolerates unknown trailing tokens, but strict or third-party parsers
+                // may reject or warn on this field. It carries no meaning within QDirStat itself
+                // and exists solely for the broader fs-delta-tracker change-detection pipeline.
                 if ft.is_file() && fingerprint {
                     if let std::result::Result::Ok(fp) = crate::fingerprint::compute_fingerprint_default(ent.path()) {
                         if !fp.is_empty() {
@@ -285,7 +309,13 @@ pub async fn walk_directory(
                 );
 
                 cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let _ = tx.send(line);
+
+                if ent.depth() == 0 && ft.is_dir() {
+                    let device_name = get_device_name(ent.path());
+                    let _ = tx.send(format!("{}# Device: {}\n\n", line, device_name));
+                } else {
+                    let _ = tx.send(line);
+                }
                 ignore::WalkState::Continue
             })
         });
