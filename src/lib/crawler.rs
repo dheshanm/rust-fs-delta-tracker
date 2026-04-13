@@ -297,7 +297,7 @@ pub async fn walk_directory(
                 }
 
                 let line = format!(
-                    "{}\t{}\t{}\t{}\t{}\t{:04o}\t0x{:x}{}\n",
+                    "{}\t{}\t{}\t{}\t{}\t0{:04o}\t0x{:x}{}\n",
                     type_char,
                     encoded_path,
                     effective_size,
