@@ -58,7 +58,9 @@ pub async fn walk_directory(
     ignore_dir_size: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, String>> {
     // 1) channel
-    let (tx, rx) = crossbeam_channel::unbounded::<String>();
+    // Bounded with backpressure: walker threads block when the writer falls behind,
+    // 64 k entries × ~256 bytes avg ≈ 16 MB peak working set.
+    let (tx, rx) = crossbeam_channel::bounded::<String>(64_000);
     let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(0);
 
     // 2) progress / done flags
