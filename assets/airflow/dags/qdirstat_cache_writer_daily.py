@@ -69,7 +69,7 @@ def generate_scan_commands(**kwargs):
     commands = []
     for path in paths_to_scan:
         # Wrap the command with a simple echo for better Airflow logging
-        cmd = f'echo "Scanning directory: {path}" && {bin_path}  --data-root {path}  --output-cache-file {path}/.qdirstat.cache --skip-fingerprint'
+        cmd = f'echo "Scanning directory: {path}" && {bin_path}  --data-root {path}  --output-cache-file {path}/.qdirstat.cache.gz --skip-fingerprint'
         commands.append(cmd)
         logging.info(f"Generated command for path: {path}")
 
