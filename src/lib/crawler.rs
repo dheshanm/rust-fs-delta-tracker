@@ -84,10 +84,10 @@ pub async fn walk_directory(
             })?;
 
             if compress {
-                let mut out = flate2::write::GzEncoder::new(
-                    std::io::BufWriter::new(f),
+                let mut out = std::io::BufWriter::new(flate2::write::GzEncoder::new(
+                    f,
                     flate2::Compression::default(),
-                );
+                ));
                 write_cache_header(&mut out).map_err(|e| {
                     tracing::error!("Failed to write cache header to {:?}: {}", output_path, e);
                     e
@@ -98,10 +98,16 @@ pub async fn walk_directory(
                         e
                     })?;
                 }
-                out.finish().map_err(|e| {
-                    tracing::error!("Failed to finish gzip encoding for {:?}: {}", output_path, e);
-                    e
-                })?;
+                out.into_inner()
+                    .map_err(|e| {
+                        tracing::error!("Failed to flush BufWriter before finishing gzip for {:?}: {}", output_path, e.error());
+                        std::io::Error::new(e.error().kind(), format!("{}", e.error()))
+                    })?
+                    .finish()
+                    .map_err(|e| {
+                        tracing::error!("Failed to finish gzip encoding for {:?}: {}", output_path, e);
+                        e
+                    })?;
             } else {
                 let mut out = std::io::BufWriter::new(f);
                 write_cache_header(&mut out).map_err(|e| {
