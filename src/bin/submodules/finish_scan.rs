@@ -1,6 +1,6 @@
 use clap::Parser;
 use anyhow::Ok;
-use fs_delta_tracker::{logging, data, db};
+use fs_delta_tracker::{logging, data, db, qdirstat};
 
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about)]
@@ -13,9 +13,9 @@ struct Opt {
     #[arg(long, env = "LOG_FILE")]
     log_file: Option<std::path::PathBuf>,
 
-    /// Output TSV file for the scanned files.
-    #[arg(long, env = "OUTPUT_TSV_FILE")]
-    output_tsv_file: std::path::PathBuf,
+    /// QDirStat cache file with the scanned entries.
+    #[arg(long, env = "OUTPUT_CACHE_FILE")]
+    output_cache_file: std::path::PathBuf,
 
     /// Path to the SQL file containing the processing logic.
     #[arg(long, env = "SQL_FILE")]
@@ -60,10 +60,10 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(connection);
     tracing::info!("🔗 Connected to database");
 
-    // Load the TSV file into the staging table
-    tracing::info!("📥 Loading TSV file -> staging: {}", opt.output_tsv_file.display());
-    data::load_tsv_file(&client, opt.output_tsv_file).await?;
-    tracing::info!("📥 TSV file loaded into staging table");
+    // Load the QDirStat cache file into the staging table
+    tracing::info!("📥 Loading cache file -> staging: {}", opt.output_cache_file.display());
+    qdirstat::load_qdirstat_file(&client, opt.output_cache_file, opt.scan_id).await?;
+    tracing::info!("📥 Cache file loaded into staging table");
 
     // Execute the SQL template file
     

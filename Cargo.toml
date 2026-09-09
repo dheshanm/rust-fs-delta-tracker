@@ -1,6 +1,6 @@
 [package]
 name = "fs_delta_tracker"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [[bin]]
@@ -15,13 +15,13 @@ path = "src/bin/initialize_db.rs"
 name = "crawler"
 path = "src/bin/submodules/crawler.rs"
 
-# [[bin]]
-# name = "start_scan"
-# path = "src/bin/submodules/start_scan.rs"
+[[bin]]
+name = "start_scan"
+path = "src/bin/submodules/start_scan.rs"
 
-# [[bin]]
-# name = "finish_scan"
-# path = "src/bin/submodules/finish_scan.rs"
+[[bin]]
+name = "finish_scan"
+path = "src/bin/submodules/finish_scan.rs"
 
 [dependencies]
 tokio = { version = "1.45", features = ["full"] }
@@ -45,6 +45,9 @@ include_dir = "0.7.4"
 hostname = "0.4.1"
 blake3 = "1.5"
 num_cpus = "1.17.0"
+percent-encoding = "2"
+flate2 = "1"
+bytesize = "1"
 
 [dev-dependencies]
 tempfile = "3.14"

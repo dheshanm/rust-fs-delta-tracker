@@ -3,6 +3,7 @@ use fs_delta_tracker::crawler;
 use fs_delta_tracker::data;
 use fs_delta_tracker::db;
 use fs_delta_tracker::logging;
+use fs_delta_tracker::qdirstat;
 
 static PROJECT_DIR: include_dir::Dir = include_dir::include_dir!("$CARGO_MANIFEST_DIR/assets");
 
@@ -32,6 +33,22 @@ struct Opt {
     /// Default is number of logical CPUs.
     #[arg(long, env = "NUM_THREADS", default_value_t = num_cpus::get())]
     num_threads: usize,
+
+    /// Path for the QDirStat cache file.
+    /// Defaults to a temporary `.qdirstat.cache.gz` file in the system temp directory.
+    /// If the path ends with `.gz` the file is written as gzip; otherwise it is written as plain text.
+    #[arg(long, env = "CACHE_FILE")]
+    cache_file: Option<std::path::PathBuf>,
+
+    /// Preserve the QDirStat cache file after the scan completes.
+    #[arg(long, env = "PRESERVE_CACHE_FILE", default_value_t = false)]
+    preserve_cache_file: bool,
+
+    /// Skip computing a content fingerprint (hash) for each regular file.
+    /// Use this flag to speed up scans.
+    #[arg(long, env = "SKIP_FINGERPRINT")]
+    skip_fingerprint: bool,
+
 }
 
 #[tokio::main]
@@ -51,12 +68,24 @@ async fn main() -> anyhow::Result<()> {
     );
     tracing::info!("⏱️ Progress interval: {} seconds", opt.progress_interval);
     tracing::info!("🧵 Number of threads: {}", opt.num_threads);
+    tracing::info!("🫆 Fingerprinting: {}", !opt.skip_fingerprint);
     tracing::info!(
         "📝 Log file: {}",
         opt.log_file
             .as_deref()
             .unwrap_or(std::path::Path::new("logs/app.log"))
             .display()
+    );
+    tracing::info!(
+        "🗂️ Cache file: {}",
+        opt.cache_file
+            .as_deref()
+            .unwrap_or(std::path::Path::new("temporary"))
+            .display()
+    );
+    tracing::info!(
+        "🛡️ Preserve cache file: {}",
+        opt.preserve_cache_file
     );
     tracing::info!("{}", "=".repeat(50));
 
@@ -70,17 +99,25 @@ async fn main() -> anyhow::Result<()> {
     let scan_id = data::start_scan(&client, &opt.data_root, started_at).await?;
     tracing::info!("🔍 Scan ID: {}", scan_id);
 
-    // Use a temporary file for output
-    let output_tsv_file = std::env::temp_dir().join(format!("scan_{}.tsv", scan_id));
-    tracing::info!("📝 Output TSV file: {}", output_tsv_file.display());
+    // Use a temporary file for output (QDirStat cache format).
+    // Compression is implied by the file extension: files ending in `.gz` are gzip-compressed.
+    let output_cache_file = opt.cache_file.clone().unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("scan_{}.qdirstat.cache.gz", scan_id))
+    });
+    let compress = output_cache_file.extension().map_or(false, |ext| ext == "gz");
+    tracing::info!("📝 Output cache file: {}", output_cache_file.display());
+    tracing::info!("🗜️ Compress output: {}", compress);
 
     tracing::info!("🔍 Starting directory walk...");
     let mut metadata = crawler::walk_directory(
         opt.data_root,
         opt.progress_interval,
-        scan_id,
-        output_tsv_file.clone(),
+        output_cache_file.clone(),
         opt.num_threads,
+        !opt.skip_fingerprint,
+        compress,
+        false, // cross_filesystems: not exposed in standalone CLI
+        false, // ignore_dir_size: not exposed in standalone CLI
     )
     .await
     .map_err(|e| {
@@ -91,11 +128,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("✅ Filesystem crawler finished successfully");
 
     tracing::info!(
-        "📥 Loading TSV file -> staging: {}",
-        output_tsv_file.display()
+        "📥 Loading cache file -> staging: {}",
+        output_cache_file.display()
     );
-    data::load_tsv_file(&client, output_tsv_file.clone()).await?;
-    tracing::info!("📥 TSV file loaded into staging table");
+    qdirstat::load_qdirstat_file(&client, output_cache_file.clone(), scan_id).await?;
+    tracing::info!("📥 Cache file loaded into staging table");
 
     // Execute the SQL template file
     // Construct a HashMap for parameters
@@ -129,12 +166,15 @@ async fn main() -> anyhow::Result<()> {
     metadata.insert("hostname".to_string(), hostname);
     data::finalize_scan(&client, scan_id, metadata).await?;
 
-    tracing::info!("🗑️ Clearing TSV File: {}", output_tsv_file.display());
-    // Remove the temporary TSV file
-    if let Err(e) = std::fs::remove_file(&output_tsv_file) {
-        tracing::warn!("⚠️ Failed to remove temporary TSV file: {}", e);
+    if opt.preserve_cache_file {
+        tracing::info!("📁 Cache file preserved at: {}", output_cache_file.display());
     } else {
-        tracing::info!("🗑️ Temporary TSV file removed successfully");
+        tracing::info!("🗑️ Clearing cache file: {}", output_cache_file.display());
+        if let Err(e) = std::fs::remove_file(&output_cache_file) {
+            tracing::warn!("⚠️ Failed to remove temporary cache file: {}", e);
+        } else {
+            tracing::info!("🗑️ Temporary cache file removed successfully");
+        }
     }
 
     tracing::info!("✅ Scan completed successfully!");
